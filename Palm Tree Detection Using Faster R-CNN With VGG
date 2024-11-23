@@ -1,0 +1,87 @@
+import torch
+import torchvision
+
+print(f"PyTorch version: {torch.__version__}")
+print(f"torchvision version: {torchvision.__version__}")
+
+from torch.utils.data import Dataset
+from PIL import Image
+import os
+import torch
+from torchvision import transforms
+
+class CustomDataset(Dataset):
+    def __init__(self, img_folder, annotations_file, transform=None):
+        self.img_folder = img_folder
+        self.annotations_file = annotations_file
+        self.transform = transform
+        self.img_names = os.listdir(img_folder)
+        self.annotations = self.load_annotations(annotations_file)
+
+    def load_annotations(self, annotations_file):
+        with open(annotations_file, 'r') as f:
+            annotations = json.load(f)
+        return annotations
+
+    def __getitem__(self, idx):
+        img_name = self.img_names[idx]
+        img_path = os.path.join(self.img_folder, img_name)
+        image = Image.open(img_path).convert("RGB")
+
+        # Example: Get annotations for image
+        boxes = self.annotations[img_name]['boxes']
+        labels = self.annotations[img_name]['labels']
+
+        target = {
+            'boxes': torch.tensor(boxes, dtype=torch.float32),
+            'labels': torch.tensor(labels, dtype=torch.int64),
+        }
+
+        if self.transform:
+            image = self.transform(image)
+
+        return image, target
+
+    def __len__(self):
+        return len(self.img_names)
+
+from torchvision.models.detection import fasterrcnn_resnet50_fpn
+from torchvision.models.detection import FasterRCNN
+from torchvision.models.detection import FastRCNNPredictor
+
+def get_fasterrcnn_model(num_classes):
+    # Load pre-trained Faster R-CNN model with a ResNet50 backbone
+    model = fasterrcnn_resnet50_fpn(pretrained=True)
+
+    # Replace the classifier (the final fully connected layer) with a new one for your custom number of classes
+    in_features = model.roi_heads.box_predictor.cls_score.in_features
+    model.roi_heads.box_predictor = FastRCNNPredictor(in_features, num_classes)
+
+    return model
+
+# Example: 2 classes (background + custom object)
+model = get_fasterrcnn_model(num_classes=2)
+from torch.utils.data import DataLoader
+import torch.optim as optim
+
+# Create dataset and dataloader
+dataset = CustomDataset(img_folder='/kaggle/input/palm-tree-detection-dataset/Palm Tree Detection Dataset/Palm-Counting-349images/train/images', annotations_file='/kaggle/input/palm-tree-annotations/annotations/train_annotations.json', transform=transforms.ToTensor())
+data_loader = DataLoader(dataset, batch_size=8, shuffle=True)
+
+# Set up optimizer
+optimizer = optim.SGD(model.parameters(), lr=0.005, momentum=0.9, weight_decay=0.0005)
+
+# Training loop
+model.train()
+for epoch in range(10):  # Adjust number of epochs
+    for images, targets in data_loader:
+        images = [image.to(device) for image in images]  # Send to device (GPU/CPU)
+        targets = [{k: v.to(device) for k, v in t.items()} for t in targets]
+
+        optimizer.zero_grad()
+        loss_dict = model(images, targets)
+        losses = sum(loss for loss in loss_dict.values())
+        losses.backward()
+        optimizer.step()
+
+    print(f'Epoch {epoch} Loss: {losses.item()}')
