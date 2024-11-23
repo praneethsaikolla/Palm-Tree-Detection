@@ -1,0 +1,337 @@
+%cd /content/drive/MyDrive/Palm Tree Detection Dataset/
+import os
+import shutil
+
+# Organize train folder
+os.makedirs('train/images', exist_ok=True)
+os.makedirs('train/labels', exist_ok=True)
+
+for file in os.listdir('train'):
+    if file.endswith(('.jpg', '.jpeg', '.png')):
+        shutil.move(f'train/{file}', 'train/images/')
+    elif file.endswith('.txt'):  # YOLO label files
+        shutil.move(f'train/{file}', 'train/labels/')
+
+# Organize test folder
+os.makedirs('test/images', exist_ok=True)
+os.makedirs('test/labels', exist_ok=True)
+
+for file in os.listdir('test'):
+    if file.endswith(('.jpg', '.jpeg', '.png')):
+        shutil.move(f'test/{file}', 'test/images/')
+    elif file.endswith('.txt'):  # YOLO label files
+        shutil.move(f'test/{file}', 'test/labels/')
+import os
+import xml.etree.ElementTree as ET
+
+def convert_voc_to_yolo(voc_dir, yolo_dir, image_dir, class_names):
+    """
+    Converts Pascal VOC XML files to YOLO format.
+
+    Args:
+        voc_dir (str): Directory containing .xml files.
+        yolo_dir (str): Directory to save .txt files.
+        image_dir (str): Directory containing images (to get image dimensions).
+        class_names (list): List of class names in order.
+    """
+    os.makedirs(yolo_dir, exist_ok=True)
+    for xml_file in os.listdir(voc_dir):
+        if not xml_file.endswith(".xml"):
+            continue
+        xml_path = os.path.join(voc_dir, xml_file)
+
+        tree = ET.parse(xml_path)
+        root = tree.getroot()
+
+        image_name = root.find('filename').text
+        image_path = os.path.join(image_dir, image_name)
+
+        # Get image dimensions
+        size = root.find("size")
+        img_width = int(size.find("width").text)
+        img_height = int(size.find("height").text)
+
+        # Create YOLO formatted text file
+        yolo_file = os.path.join(yolo_dir, os.path.splitext(xml_file)[0] + ".txt")
+        with open(yolo_file, "w") as yolo:
+            for obj in root.findall("object"):
+                class_name = obj.find("name").text
+                if class_name not in class_names:
+                    continue  # Skip classes not in class_names
+
+                class_id = class_names.index(class_name)
+
+                bndbox = obj.find("bndbox")
+                xmin = int(bndbox.find("xmin").text)
+                ymin = int(bndbox.find("ymin").text)
+                xmax = int(bndbox.find("xmax").text)
+                ymax = int(bndbox.find("ymax").text)
+
+                # Convert to YOLO format
+                x_center = ((xmin + xmax) / 2) / img_width
+                y_center = ((ymin + ymax) / 2) / img_height
+                width = (xmax - xmin) / img_width
+                height = (ymax - ymin) / img_height
+
+                # Write to file
+                yolo.write(f"{class_id} {x_center} {y_center} {width} {height}\n")
+
+# Define your paths and class names
+train_voc_dir = "/content/drive/MyDrive/Palm Tree Detection Dataset/train/"  # Folder with train .xml files
+train_yolo_dir = "/content/drive/MyDrive/Palm Tree Detection Dataset/train/labels/"  # Output for YOLO .txt files
+train_images_dir = "/content/drive/MyDrive/Palm Tree Detection Dataset/train/images/"  # Folder with train images
+
+test_voc_dir = "/content/drive/MyDrive/Palm Tree Detection Dataset/test/"  # Folder with test .xml files
+test_yolo_dir = "/content/drive/MyDrive/Palm Tree Detection Dataset/test/labels/"  # Output for YOLO .txt files
+test_images_dir = "/content/drive/MyDrive/Palm Tree Detection Dataset/test/images/"  # Folder with test images
+
+class_names = ["palm_tree"]  # Add more class names if necessary
+
+# Convert train and test datasets
+convert_voc_to_yolo(train_voc_dir, train_yolo_dir, train_images_dir, class_names)
+convert_voc_to_yolo(test_voc_dir, test_yolo_dir, test_images_dir, class_names)
+yaml_content = """
+train: /content/drive/MyDrive/Palm Tree Detection Dataset/train/images
+val: /content/drive/MyDrive/Palm Tree Detection Dataset/test/images
+
+nc: 1
+names: ['palm_tree']
+"""
+with open("/content/drive/MyDrive/palm_tree.yaml", "w") as file:
+    file.write(yaml_content)
+
+# Check if the file is created
+!ls /content
+!ls "/content/drive/MyDrive/Palm Tree Detection Dataset/train/images"
+!ls "/content/drive/MyDrive/Palm Tree Detection Dataset/test/images"
+!pip install ultralytics --upgrade
+with open("/content/drive/MyDrive/palm_tree.yaml", "r") as f:
+    print(f.read())
+!ls /content/drive/MyDrive/Palm\ Tree\ Detection\ Dataset/train/images
+!ls /content/drive/MyDrive/Palm\ Tree\ Detection\ Dataset/train/labels
+!ls /content/drive/MyDrive/Palm\ Tree\ Detection\ Dataset/test/images
+!ls /content/drive/MyDrive/Palm\ Tree\ Detection\ Dataset/test/labels
+import os
+import xml.etree.ElementTree as ET
+
+# Define the directory where your XML files are stored
+xml_dir = "/content/drive/MyDrive/Palm Tree Detection Dataset/train"
+
+# Define the directory where label files (YOLO format) will be stored
+label_dir = "/content/drive/MyDrive/Palm Tree Detection Dataset/train/labels"
+
+# Function to parse the XML and extract labels
+def parse_xml(xml_file):
+    tree = ET.parse(xml_file)
+    root = tree.getroot()
+
+    # Extract image file name (usually stored in 'filename' tag)
+    image_name = root.find('filename').text
+
+    # Initialize the list of labels for the current image
+    labels = []
+
+    # List to store class names dynamically
+    class_names = []
+
+    # Iterate through each object in the XML (usually stored in 'object' tags)
+    for obj in root.findall('object'):
+        # Extract class name (normalize to lowercase)
+        class_name = obj.find('name').text.lower()
+
+        # Add the class name to the class_names list if it isn't already present
+        if class_name not in class_names:
+            class_names.append(class_name)
+
+        # Check if the 'bndbox' element exists
+        bbox = obj.find('bndbox')
+        if bbox is not None:
+            # Extract bounding box coordinates
+            try:
+                xmin = int(bbox.find('xmin').text)
+                ymin = int(bbox.find('ymin').text)
+                xmax = int(bbox.find('xmax').text)
+                ymax = int(bbox.find('ymax').text)
+
+                # Convert the bounding box to YOLO format (normalized)
+                image_width = int(root.find('size').find('width').text)
+                image_height = int(root.find('size').find('height').text)
+
+                # Calculate the normalized YOLO format values: class_id, x_center, y_center, width, height
+                class_id = class_names.index(class_name)  # Use dynamically generated class_names
+                x_center = (xmin + xmax) / 2 / image_width
+                y_center = (ymin + ymax) / 2 / image_height
+                width = (xmax - xmin) / image_width
+                height = (ymax - ymin) / image_height
+
+                # Append the label in YOLO format
+                labels.append((class_id, x_center, y_center, width, height))
+            except Exception as e:
+                print(f"Error processing bounding box for {image_name}: {e}")
+                continue  # Skip the object if bounding box data is incorrect or missing
+        else:
+            print(f"Warning: No 'bndbox' found for {class_name} in image {image_name}, skipping this object.")
+
+    return image_name, labels, class_names
+
+# Function to write YOLO labels to a text file
+def write_labels(image_name, labels, label_dir):
+    # Construct the label file path (replace extension .jpg/.png with .txt)
+    label_file = os.path.join(label_dir, os.path.splitext(image_name)[0] + ".txt")
+
+    # Open the label file and write the new labels
+    with open(label_file, 'w') as f:
+        for label in labels:
+            f.write(f"{label[0]} {label[1]} {label[2]} {label[3]} {label[4]}\n")
+
+# Iterate through all XML files in the directory and extract labels
+for xml_file in os.listdir(xml_dir):
+    if xml_file.endswith(".xml"):
+        xml_path = os.path.join(xml_dir, xml_file)
+        image_name, labels, class_names = parse_xml(xml_path)
+
+        if labels:  # If there are labels extracted for the image
+            # Replace or create the label file (write new labels)
+            write_labels(image_name, labels, label_dir)
+            print(f"Processed and replaced labels for {image_name}")
+        else:
+            print(f"No valid labels found for {image_name}, skipping.")
+
+# Optional: You can print the class names to check what classes are in the dataset
+print("Classes found in dataset:", class_names)
+import os
+
+label_dir = "/content/drive/MyDrive/Palm Tree Detection Dataset/train/labels"
+image_dir = "/content/drive/MyDrive/Palm Tree Detection Dataset/train/images"
+
+# Check if each image has a corresponding label file
+for image_file in os.listdir(image_dir):
+    label_file = os.path.splitext(image_file)[0] + ".txt"
+    label_path = os.path.join(label_dir, label_file)
+
+    if not os.path.exists(label_path):
+        print(f"Missing label for image: {image_file}")
+    else:
+        with open(label_path, "r") as f:
+            lines = f.readlines()
+            if not lines:
+                print(f"Empty label file: {label_file}")
+            else:
+                print(f"Labels for {label_file}:")
+                for line in lines:
+                    print(line.strip())
+import os
+
+label_dir = "/content/drive/MyDrive/Palm Tree Detection Dataset/train/labels"  # Your label directory
+
+for label_file in os.listdir(label_dir):
+    if label_file.endswith(".txt"):
+        with open(os.path.join(label_dir, label_file), 'r') as f:
+            labels = f.readlines()
+            print(f"Labels in {label_file}: {labels}")
+import os
+
+image_dir = "/content/drive/MyDrive/Palm Tree Detection Dataset/train/images"
+label_dir = "/content/drive/MyDrive/Palm Tree Detection Dataset/train/labels"
+
+for img_name in os.listdir(image_dir)[:5]:  # Check first 5 images
+    label_path = os.path.join(label_dir, img_name.replace(".jpg", ".txt"))
+    if os.path.exists(label_path):
+        with open(label_path, 'r') as label_file:
+            labels = label_file.readlines()
+            print(f"{img_name}: {labels}")
+    else:
+        print(f"Missing label for image: {img_name}")
+train: "/content/drive/MyDrive/Palm Tree Detection Dataset/train/images"
+val: "/content/drive/MyDrive/Palm Tree Detection Dataset/test/images"
+
+nc: 1  # Number of classes
+names: ['palm_tree']  # Class names
+import os
+
+label_dir = "/content/drive/MyDrive/Palm Tree Detection Dataset/train/labels"
+invalid_labels = 0
+for label_file in os.listdir(label_dir):
+    # Only process files with the .txt extension
+    if label_file.endswith(".txt"):
+        with open(os.path.join(label_dir, label_file), 'r') as file:
+            lines = file.readlines()
+            for line in lines:
+                try:  # Add a try-except block to handle potential errors
+                    class_id = int(line.split()[0])
+                    if class_id != 0:
+                        print(f"Invalid class ID found in file: {label_file}")
+                        invalid_labels += 1
+                except IndexError:
+                    print(f"Invalid label format in file: {label_file}, line: {line}")
+                    invalid_labels += 1  # Increment for formatting errors as well
+if invalid_labels == 0:
+    print("All labels are valid.")
+file_path = "/content/drive/MyDrive/palm_tree.yaml"
+# To read the content of the file
+with open("/content/drive/MyDrive/palm_tree.yaml", "r") as file:
+    yaml_content = file.read()
+    print(yaml_content)  # Or process as needed
+empty_labels = 0
+for label_file in os.listdir(label_dir):
+    if os.stat(os.path.join(label_dir, label_file)).st_size == 0:
+        print(f"Empty label file found: {label_file}")
+        empty_labels += 1
+if empty_labels == 0:
+    print("No empty label files found.")
+from ultralytics import YOLO
+
+# Load the YOLO model
+model = YOLO('yolov8n.pt')  # Pre-trained YOLOv8n model
+def plot_mc_curve(px, py, save_dir, names, xlabel, ylabel, on_plot):
+    if len(names) == 1:  # Check for single-class
+        return  # Skip plotting if only one class
+    # Existing plotting logic below
+    if 0 < len(names) < 21:  # display per-class legend if < 21 classes
+        for i, y in enumerate(py):
+            ax.plot(px, y, linewidth=1, label=f"{names[i]}")  # plot(confidence, metric)
+    else:
+        ax.plot(px, py.T, linewidth=1, color="grey")  # plot(confidence, metric)
+import os
+import glob
+
+# Print the paths of label files in your dataset
+label_files = glob.glob('/content/drive/MyDrive/Palm Tree Detection Dataset/train/labels/*.txt')
+for file in label_files[:5]:  # Just print a few files for review
+    with open(file, 'r') as f:
+        print(f.read())
+from ultralytics import YOLO
+
+# Load the YOLO model
+model = YOLO('yolov8n.pt')  # Pre-trained YOLOv8n model
+
+# Train the model
+model.train(
+    data="/content/drive/MyDrive/palm_tree.yaml",  # Path to your YAML configuration file
+    epochs=5,
+    batch=16,
+    workers=8,
+    imgsz=640,
+    verbose=True
+)
+# Validate the model
+metrics = model.val()
+print(metrics)  # Print validation metrics (mAP, precision, recall)
+
+# Predict on test images and save results
+results = model.predict(source='/content/drive/MyDrive/Palm Tree Detection Dataset/test/images', save=True)
+
+# Visualize a prediction
+import cv2
+from matplotlib import pyplot as plt
+
+image_path = "runs/predict/image0.jpg"  # Adjust the path based on saved results
+image = cv2.imread(image_path)
+plt.imshow(cv2.cvtColor(image, cv2.COLOR_BGR2RGB))
+plt.axis('off')
+plt.show()
+# Save the trained model
+model.save("palm_tree_model.pt")
+
+# Copy the model to Google Drive
+!cp palm_tree_model.pt /content/drive/MyDrive/
